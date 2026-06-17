@@ -1,10 +1,11 @@
 """
 Zoho Projects MCP Server - FastMCP 3.x
-Includes /oauth/callback to capture and store refresh token permanently.
+OAuth callback stores access token directly.
 """
 
 import os
 import json
+import time
 import urllib.request
 import urllib.parse
 from fastmcp import FastMCP
@@ -15,8 +16,6 @@ mcp = FastMCP("zoho_projects_mcp")
 
 def portal_path(path: str) -> str:
     return f"/portal/{PORTAL_ID}{path}"
-
-# ── TAGS ──────────────────────────────────────────────────
 
 @mcp.tool
 async def zoho_projects_create_tags(tags: list[dict]) -> str:
@@ -149,13 +148,14 @@ async def zoho_projects_search(query: str, project_id: Optional[str] = None) -> 
 if __name__ == "__main__":
     import uvicorn
     from starlette.applications import Starlette
-    from starlette.responses import HTMLResponse, JSONResponse
+    from starlette.responses import HTMLResponse
     from starlette.routing import Route, Mount
+    from auth import _set_access_token
 
     CLIENT_ID = os.environ.get("ZOHO_CLIENT_ID", "")
     CLIENT_SECRET = os.environ.get("ZOHO_CLIENT_SECRET", "")
     ACCOUNTS_URL = os.environ.get("ZOHO_ACCOUNTS_URL", "https://accounts.zoho.com")
-    TOKEN_FILE = "/tmp/zoho_refresh_token.txt"
+    REDIRECT_URI = "https://zoho-projects-mcp-production.up.railway.app/oauth/callback"
 
     async def oauth_callback(request):
         code = request.query_params.get("code")
@@ -166,26 +166,37 @@ if __name__ == "__main__":
                 "code": code,
                 "client_id": CLIENT_ID,
                 "client_secret": CLIENT_SECRET,
-                "redirect_uri": f"https://zoho-projects-mcp-production.up.railway.app/oauth/callback",
+                "redirect_uri": REDIRECT_URI,
                 "grant_type": "authorization_code",
             }).encode()
             req = urllib.request.Request(f"{ACCOUNTS_URL}/oauth/v2/token", data=data, method="POST")
             r = urllib.request.urlopen(req, timeout=10)
             result = json.loads(r.read())
-            if "refresh_token" in result:
-                with open(TOKEN_FILE, "w") as f:
-                    f.write(result["refresh_token"])
-                return HTMLResponse(f"<h2>✅ Success!</h2><p>Refresh token saved. Copy this and store in Railway ZOHO_REFRESH_TOKEN:</p><pre>{result['refresh_token']}</pre>")
+
+            access_token = result.get("access_token")
+            refresh_token = result.get("refresh_token")
+            expires_in = result.get("expires_in", 3600)
+
+            if access_token:
+                # Store access token in memory for immediate use
+                _set_access_token(access_token, time.time() + expires_in)
+
+            if refresh_token:
+                msg = f"<h2>✅ Full Success!</h2><p>Store this in Railway as ZOHO_REFRESH_TOKEN:</p><pre>{refresh_token}</pre>"
+            elif access_token:
+                msg = f"<h2>✅ Access Token Captured!</h2><p>Server is authorized for 1 hour.</p><p>To make permanent: store this access token in Railway as ZOHO_ACCESS_TOKEN:</p><pre>{access_token}</pre><p><small>Full response: {json.dumps(result)}</small></p>"
             else:
-                return HTMLResponse(f"<h2>❌ Error</h2><pre>{json.dumps(result, indent=2)}</pre>")
+                msg = f"<h2>❌ Error</h2><pre>{json.dumps(result, indent=2)}</pre>"
+
+            return HTMLResponse(msg)
         except Exception as e:
             return HTMLResponse(f"<h2>❌ Exception</h2><pre>{str(e)}</pre>")
 
     async def auth_start(request):
         scope = "ZohoProjects.portals.ALL,ZohoProjects.projects.ALL,ZohoProjects.tasks.ALL,ZohoProjects.tags.ALL,ZohoProjects.bugs.ALL,ZohoProjects.timesheets.ALL,ZohoProjects.milestones.ALL,ZohoProjects.users.ALL,ZohoProjects.documents.ALL"
-        redirect_uri = urllib.parse.quote("https://zoho-projects-mcp-production.up.railway.app/oauth/callback")
-        url = f"{ACCOUNTS_URL}/oauth/v2/auth?scope={scope}&client_id={CLIENT_ID}&response_type=code&access_type=offline&redirect_uri={redirect_uri}"
-        return HTMLResponse(f'<h2>Click to authorize Zoho Projects</h2><a href="{url}"><button style="font-size:20px;padding:10px 20px">Authorize Now</button></a>')
+        redirect_uri = urllib.parse.quote(REDIRECT_URI)
+        url = f"{ACCOUNTS_URL}/oauth/v2/auth?scope={scope}&client_id={CLIENT_ID}&response_type=code&access_type=offline&prompt=consent&redirect_uri={redirect_uri}"
+        return HTMLResponse(f'<h2>Authorize Zoho Projects</h2><a href="{url}"><button style="font-size:20px;padding:10px 20px;background:#0066cc;color:white;border:none;border-radius:6px;cursor:pointer">Authorize Now</button></a>')
 
     port = int(os.environ.get("PORT", 8000))
     mcp_app = mcp.http_app()
