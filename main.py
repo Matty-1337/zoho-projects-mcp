@@ -17,9 +17,18 @@ async def health(request):
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
-    sse = mcp.sse_app()
+    sse_app = mcp.sse_app()
+
     app = Starlette(routes=[
         Route("/health", health),
-        Mount("/", app=sse),
+        Mount("/", app=sse_app),
     ])
-    uvicorn.run(app, host="0.0.0.0", port=port)
+
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=port,
+        log_level="info",
+        http="h11",          # Force HTTP/1.1 only — fixes 421 from HTTP/2 proxies
+        ws="none",
+    )
