@@ -201,10 +201,13 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     mcp_app = mcp.http_app()
 
-    app = Starlette(routes=[
-        Route("/oauth/callback", oauth_callback),
-        Route("/auth", auth_start),
-        Mount("/", app=mcp_app),
-    ])
+    app = Starlette(
+        routes=[
+            Route("/oauth/callback", oauth_callback),
+            Route("/auth", auth_start),
+            Mount("/", app=mcp_app),
+        ],
+        lifespan=mcp_app.lifespan,
+    )
 
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
