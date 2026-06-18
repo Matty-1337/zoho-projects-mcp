@@ -44,7 +44,12 @@ async def zoho_projects_create_tags(params: CreateTagsInput) -> str:
         JSON with created tag IDs and names
     """
     try:
-        result = await zoho_request("POST", portal_path("/tags"), data={"tags": json.dumps(params.tags)})
+        form_data = []
+        for i, tag in enumerate(params.tags):
+            form_data.append((f"tags[{i}][name]", tag["name"]))
+            if tag.get("color_class"):
+                form_data.append((f"tags[{i}][color_class]", tag["color_class"]))
+        result = await zoho_request("POST", portal_path("/tags"), data=form_data)
         return json.dumps(result, indent=2)
     except Exception as e:
         return handle_error(e)

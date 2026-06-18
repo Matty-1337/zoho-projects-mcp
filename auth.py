@@ -49,19 +49,21 @@ async def get_access_token(force_refresh: bool = False) -> str:
         return _access_token
 
 
-async def zoho_request(method: str, endpoint: str, params=None, json=None, data=None) -> dict:
+async def zoho_request(method: str, endpoint: str, params=None, json=None, data=None, form=None) -> dict:
     token = await get_access_token()
     url = f"{BASE_URL}{endpoint}"
-    headers = {"Authorization": f"Zoho-oauthtoken {token}", "Content-Type": "application/json"}
+    headers = {"Authorization": f"Zoho-oauthtoken {token}"}
+    if json is not None:
+        headers["Content-Type"] = "application/json"
 
     async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.request(method=method, url=url, headers=headers, params=params, json=json, data=data)
+        response = await client.request(method=method, url=url, headers=headers, params=params, json=json, data=data or form)
 
         # If 401, force refresh token and retry once
         if response.status_code == 401:
             token = await get_access_token(force_refresh=True)
             headers["Authorization"] = f"Zoho-oauthtoken {token}"
-            response = await client.request(method=method, url=url, headers=headers, params=params, json=json, data=data)
+            response = await client.request(method=method, url=url, headers=headers, params=params, json=json, data=data or form)
 
         if response.status_code == 204:
             return {"success": True}
